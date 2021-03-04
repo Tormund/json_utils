@@ -26,17 +26,16 @@ proc flatAUX(j: JsonNode, prefix = "", flatArrays: bool = false, objDepth: int =
   while nodesToProcess.len > 0:
     nextNodes.setLen(0)
     for pair in nodesToProcess:
-      var (key, n) = pair
-      if n.kind == JObject and (objDepth == -1 or depth < objDepth):
-        for k, v in n:
-          nextNodes.add((key: key.dot(k), node: v))
-      elif n.kind == JArray and flatArrays:
+      if pair.node.kind == JObject and (objDepth == -1 or depth < objDepth):
+        for k, v in pair.node:
+          nextNodes.add((key: pair.key.dot(k), node: v))
+      elif pair.node.kind == JArray and flatArrays:
         var idx = 0
-        for v in n:
-          nextNodes.add((key: key.dot(fmt"[{idx}]"), node: v))
+        for v in pair.node:
+          nextNodes.add((key: pair.key.dot(fmt"[{idx}]"), node: v))
           inc idx
       else:
-        rPairs.add((key, n))
+        rPairs.add(pair)
     nodesToProcess = nextNodes
     inc depth
 
