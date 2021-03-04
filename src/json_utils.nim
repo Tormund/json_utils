@@ -57,22 +57,6 @@ proc unflat*(j: JsonNode): JsonNode =
           r[k] = newJObject()
         r = r[k]
 
-proc genPatchFrom*(sourceJ, fromJ: JsonNode): JsonNode =
-  var flat1 = fromJ.flat()
-  var flat2 = sourceJ.flat()
-  var r = newJObject()
-
-  for k, v in flat1:
-    if k notin flat2:
-      r[k] = v.copy
-    elif v != flat2[k]:
-      r[k] = v.copy
-
-  for k, v in flat2:
-    if k notin flat1:
-      r[k] = v.copy
-  result = r.unflat()
-
 proc patch*(j, patch: JsonNode): JsonNode =
   var flat1 = j.flat()
   var flat2 = patch.flat()
@@ -81,43 +65,53 @@ proc patch*(j, patch: JsonNode): JsonNode =
 
   result = flat1.unflat()
 
-proc exclude*(j: JsonNode, keys: openarray[string]): JsonNode =
-  result = newJObject()
-  for k, v in j:
-    if k notin keys:
-      result[k] = v.copy
+proc getDiff*(j1,j2: JsonNode): JsonNode =
+  if j1 == j2: return nil
 
-proc match(k, mask: string): bool =
-  if mask.len > k.len: return false
-  var ki, mi: int
-  result = true
-  while mi < mask.len:
-    if mask[mi] == '*':
-      while ki < k.len and k[ki] != '.':
-        inc ki
-      inc mi
-    if mask[mi] != k[ki]:
-      result = false
-    if ki >= k.len - 1: break
-    inc ki
-    inc mi
+  if j1.kind != j2.kind:
+    return j2
 
-proc matchAny(k: string, masks: openarray[string]): bool =
-  for mask in masks:
-    if k.match(mask):
-      return true
+  if j1.kind != JObject:
+    return j2
 
-proc flatWithExclude(j: JsonNode, keys: openarray[string]): JsonNode =
-  let keys = @keys
-  result = j.flatAUX("", true, -1) do(pairs: openarray[Pair])->JsonNode:
-    result = newJObject()
-    for pair in pairs:
-      if not pair.key.matchAny(keys):
-        result[pair.key] = pair.node.copy
+  for k, v in j2:
+    if k notin j1:
+      if result.isNil:
+        result = newJObject()
+      result[k] = v
+    else:
+      let d = getDiff(j1[k], v)
+      if not d.isNil:
+        if result.isNil:
+          result = newJObject()
+        result[k] = d
 
-proc excludeEx*(j: JsonNode, keys: openarray[string]): JsonNode =
-  var fj = j.flatWithExclude(keys)
-  result = fj.unflat()
+proc getPatchFrom*(sourceJ, fromJ: JsonNode): JsonNode =
+  result = getDiff(sourceJ, fromJ)
+  if result.isNil:
+    return newJObject()
+
+proc excludeAUX(j: JsonNode, k: openarray[string]) =
+  if k.len == 0: return
+  if j.kind != JObject: return
+  if k[0] notin j: return
+  if k.len == 1:
+    j.delete(k[0])
+  elif k[0] == "*":
+    for _, v in j:
+      v.excludeAUX(k[1 .. ^1])
+  else:
+    j[k[0]].excludeAUX(k[1 .. ^1])
+
+proc exclude*(j: JsonNode, keys: openarray[string]) =
+  for k in keys:
+    j.excludeAUX(k.split("."))
+
+import times
+
+proc excludeCopy*(j: JsonNode, keys: openarray[string]): JsonNode =
+  result = j.copy()
+  result.exclude(keys)
 
 proc flatSorted*(j: JsonNode, prefix = "", flatArrays: bool = false, objDepth: int = -1, cmp: proc(k1,k2: string):int = system.cmp): JsonNode =
   result = j.flatAUX(prefix, flatArrays, objDepth) do(pairs: openarray[Pair])->JsonNode:
