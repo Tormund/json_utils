@@ -53,16 +53,31 @@ proc unflat*(j: JsonNode): JsonNode =
       if i == sk.len - 1:
         r[k] = v
       else:
-        if k notin r:
+        if k notin r or r[k].kind != JObject:
           r[k] = newJObject()
         r = r[k]
+
+proc checkKinds(j1, j2: JsonNode, path = ""): seq[string] =
+  for k, v in j1:
+    if k notin j2: continue
+    if j1[k].kind != j2[k].kind:
+      result.add(k)
+    elif j1[k].kind == JObject and j2[k].kind == JObject:
+      result.add(checkKinds(j1[k], j2[k], path.dot(k)))
+
+proc removeChangedKinds(j: JsonNode, keys: openArray[string]) =
+  for keypath in keys:
+    let sk = keypath.split(".")
+    for k in sk:
+      if k in j:
+        j.delete(k)
 
 proc patch*(j, patch: JsonNode): JsonNode =
   var flat1 = j.flat()
   var flat2 = patch.flat()
+  flat2.removeChangedKinds(checkKinds(flat1, flat2))
   for k, v in flat2:
     flat1[k] = v.copy
-
   result = flat1.unflat()
 
 proc getDiff*(j1,j2: JsonNode): JsonNode =
@@ -106,8 +121,6 @@ proc excludeAUX(j: JsonNode, k: openarray[string]) =
 proc exclude*(j: JsonNode, keys: openarray[string]) =
   for k in keys:
     j.excludeAUX(k.split("."))
-
-import times
 
 proc excludeCopy*(j: JsonNode, keys: openarray[string]): JsonNode =
   result = j.copy()
